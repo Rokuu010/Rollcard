@@ -1,117 +1,70 @@
-# Tastecard — Native iOS app
+# Rollcard
 
-Analyse your camera roll **entirely on-device**, surface your dominant visual "themes,"
-and package them into a beautiful, shareable 9:16 card. No network. No accounts. No data
-leaves your phone.
+**Your camera roll, turned into a personality card.**
 
-This is a **native SwiftUI app** (iOS 16+), ported from the React/Tailwind mockup in the
-original `Atlas` repo per `Tastecard_Production_Prompt.md`.
+Rollcard looks through the photos on your phone, works out the themes that say the most about you, and turns them into a card you can share.
 
-## Architecture decision
+<p align="center">
+  <img src="docs/rollcard-demo.png" alt="A Rollcard showing a gallery's top six themes, including Battlestation, Summit Chaser and Loud Pipes Save Lives, each with a rarity and a matching photo" width="320">
+</p>
 
-The production prompt's *primary* path was a Capacitor hybrid (the React UI inside a
-`WKWebView`). That is a web app in a native shell — explicitly not what was wanted here.
-We took the prompt's documented **SwiftUI fallback** (§2): the UI is rebuilt natively and
-the export uses SwiftUI's `ImageRenderer` instead of `html-to-image`. The native substance
-(Photos + on-device Core ML + native share) clears App Review Guideline 4.2.
+## What it does
 
-- **On-device inference:** quantised SigLIP **image encoder** in Core ML. The text side is
-  **precomputed at build time** and bundled as vectors — the text encoder never ships.
-- **Zero network, zero secrets** in the core app.
-- Two flagged product decisions (§11): the `#0000` serial is a **local random code**
-  (e.g. `#A7F3`), not a fake global rank; sharing exports a **PNG** via the native sheet
-  (no dead "copy link").
+- **Finds your themes.** Rollcard analyses your camera roll with an AI vision-language model and matches it against a library of 180+ personas, such as *Battlestation*, *Summit Chaser*, *Float Like a Butterfly* and *Loud Pipes Save Lives*.
+- **Shows the evidence.** Each theme on the card is paired with one of your own photos that matched it.
+- **Adds rarity.** Every theme gets a rarity, such as Common or Rare, and so does the card as a whole.
+- **Lets you share it.** One tap to share your Rollcard.
 
-## Prerequisites
+## How it works
 
-- **macOS + Xcode 15+** to build/run (the app cannot be compiled on Windows/Linux).
-- **XcodeGen**: `brew install xcodegen`
-- **Python 3.10+** for the build-time scripts (a venv is recommended).
+1. **Read the gallery.** With the user's permission, the app loads photos from the camera roll.
+2. **Match photos to personas.** Each persona has a set of text descriptions of what its photos look like. [SigLIP](https://arxiv.org/abs/2303.15343), a vision-language model, scores how well each photo matches each description. Because SigLIP compares images with text directly, adding a new persona only needs new descriptions, not new training data.
+3. **Apply thresholds.** A photo counts towards a persona only if its score clears that persona's confidence threshold. One photo can count towards several personas, so this is multi-label classification.
+4. **Filter out false matches.** A photo can match a description without telling you anything about the person, so two rules handle that:
+   - **Utility photos don't count.** Screenshots, receipts and notes are excluded from scoring.
+   - **Personas have a signal type.**
+     - *Embodiment* personas need the photo to show the user actually doing the thing. A saved picture of someone else's tattoo shouldn't make you "the tattooed one".
+     - *Affinity* personas accept saved images, because saving anime art still says you're into anime.
+5. **Build the card.** The top themes go onto the card, each shown with a photo that matched it.
 
-## Build steps
+## Persona library
+
+Each persona is defined in JSON with:
+
+- a display name
+- a tagline
+- a set of detection prompts
+- a confidence threshold
+- a signal type (embodiment or affinity)
+
+This keeps the library easy to grow and tune without touching the app code.
+
+## Tech stack
+
+| Part | Technology |
+|---|---|
+| Mobile app | React Native, Expo |
+| Image–text matching | SigLIP |
+| Backend | Firebase |
+| Image hosting | Cloudinary |
+
+## Running it locally
+
+You'll need Node.js, the Expo Go app on your phone, and your own Firebase and Cloudinary accounts, with their config added to the app.
 
 ```bash
-# 1. Generate the bundled category dataset (cross-platform; already committed).
-python scripts/generate_categories.py
-
-# 2. (macOS) Produce the on-device model + precomputed text vectors.
-python -m venv .venv && source .venv/bin/activate
-pip install open_clip_torch torch coremltools numpy
-python scripts/precompute_text_embeddings.py        # -> Tastecard/Resources/category_text_embeddings.bin
-python scripts/convert_siglip_coreml.py             # -> Tastecard/Resources/SigLIPImageEncoder.mlpackage
-
-# 3. (Optional) Add the .ttf fonts — see Tastecard/Resources/Fonts/README.md.
-
-# 4. Generate and open the Xcode project.
-xcodegen generate
-open Tastecard.xcodeproj
-# Set your DEVELOPMENT_TEAM in project.yml (or the target's Signing tab), then Run (⌘R).
-
-# 5. Run the unit tests (⌘U), or:
-xcodebuild test -scheme Tastecard -destination 'platform=iOS Simulator,name=iPhone SE (3rd generation)'
+git clone https://github.com/Rokuu010/rollcard.git
+cd rollcard
+npm install
+npx expo start
 ```
 
-> **Before the model is added,** the app builds and runs but shows an "analysis engine not
-> installed" setup screen instead of crashing. After step 2 it goes fully live. The two
-> scripts MUST use the same SigLIP checkpoint (they do by default) so the image/text
-> embedding spaces align; the image encoder's output dimension must equal the text-vector
-> dimension (both 768 for `ViT-B-16-SigLIP`).
+Scan the QR code with Expo Go. Your phone and computer need to be on the same Wi-Fi network; if they can't be, run `npx expo start --tunnel` instead.
 
-## App size (< 70 MB budget, §12)
+## Status
 
-The bundle = quantised image encoder + precomputed text vectors (~a few hundred KB) +
-fonts + assets. `convert_siglip_coreml.py` applies int8 quantisation by default; if the
-`.mlpackage` is still over budget, switch `--quantize palettize6` or pick a smaller
-backbone. Verify in Xcode's Organizer (App Thinning size report).
+Complete: working end to end, from gallery scan to shareable card.
 
-## Project layout
+## Authors
 
-```
-project.yml                     XcodeGen project definition (app + test targets)
-scripts/                        generate_categories.py, precompute_text_embeddings.py, convert_siglip_coreml.py
-Tastecard/
-  TastecardApp.swift            @main + root flow router
-  AppModel.swift                orchestration: phase, analysis lifecycle, deletion
-  Info.plist / PrivacyInfo.xcprivacy
-  DesignSystem/                 themes, glass, typography, brightness, rarity, droplet, flow layout
-  Models/                       Tastecard, EmergentTheme, Category, Rarity (+ validated loader)
-  Engine/                       Photos, EXIF, ImageEmbedder, CoreML embedder, text store, cache,
-                                ThemeSelector, HeroPhotoPicker, AnalysisEngine
-  Persistence/                  TastecardStore, LocalImageStore, DataDeletion
-  Security/                     InputSanitizer
-  Support/                      Haptics, ImageDownsampler, AssetImage
-  Features/                     Greeting, Permission, Generation, Card, Detail, Snapshot, Share,
-                                WarmingUp, Settings, Setup
-  Resources/                    categories.json, PrivacyPolicy.md, Terms.md, Fonts/ (+ model outputs)
-TastecardTests/                 ThemeSelector, Rarity, ExifClustering, InputSanitizer, CategoryLoading
-```
-
-## Android (Kotlin + Jetpack Compose)
-
-A separate native Android app lives under `android/` — same dataset, same precomputed
-text vectors, same selection/rarity/clustering logic (ported to Kotlin), with the SigLIP
-image encoder running via **ONNX Runtime** instead of Core ML. Photos via MediaStore,
-EXIF GPS via androidx.exifinterface, 9:16 export via Android Canvas + share Intent.
-
-Build a **debug APK** (no Mac needed) on a free Ubuntu runner via the
-[Android build workflow](.github/workflows/android.yml): Actions ▸ "Android build" ▸ Run.
-The APK artifact installs directly — no signing dance, no 7-day expiry. Locally:
-`cd android && ./gradlew assembleDebug` after running the dataset + `convert_siglip_onnx.py`
-scripts. Unit tests (`io.tastecard` logic) run via `gradle -p android test`.
-
-## What was removed from the mockup (§3)
-
-CreatorStudio / PhoneFrame, the fake QR + fake social buttons + `ais.studio` mock, the
-`Testimonial` guestbook, all mock URLs, the `followers===2300?'Photos'` hack, the
-hardcoded `#0000` and `bookworm→common` rarity map, Unsplash hotlinks, and the
-`@google/genai` / Express / `dotenv` / Gemini server stub. The on-device analysis engine,
-which was entirely absent, was built from scratch.
-
-## Privacy & review
-
-- `NSPhotoLibraryUsageDescription` is specific and honest; limited library is supported and
-  offered. `PrivacyInfo.xcprivacy` declares required-reason APIs and **Data Not Collected**.
-- One-tap "Delete my Tastecard data" (Settings) wipes the card, the embedding cache, and
-  any custom background.
-- Privacy Policy / Terms are bundled (`Resources/*.md`) and shown in-app; host the same
-  files and add the URLs in App Store Connect.
+Built by [Rohan](https://github.com/Rokuu010) and [Ken](https://github.com/friend-username).
