@@ -5,7 +5,7 @@
 Rollcard looks through the photos on your phone, works out the themes that say the most about you, and turns them into a card you can share.
 
 <p align="center">
-  <img src="docs/rollcard-demo.png" alt="A Rollcard showing a gallery's top six themes, including Battlestation, Summit Chaser and Loud Pipes Save Lives, each with a rarity and a matching photo" width="320">
+  <img src="rollcard-demo.png" alt="A Rollcard showing a gallery's top six themes, including Battlestation, Summit Chaser and Loud Pipes Save Lives, each with a rarity and a matching photo" width="320">
 </p>
 
 ## What it does
