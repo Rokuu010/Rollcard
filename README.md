@@ -67,4 +67,4 @@ Complete: working end to end, from gallery scan to shareable card.
 
 ## Authors
 
-Built by [Rohan](https://github.com/Rokuu010) and [Ken](https://github.com/friend-username).
+Built by [Rohan](https://github.com/Rokuu010) and [Ken](https://github.com/xskexn).
